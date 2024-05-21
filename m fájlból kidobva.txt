@@ -1,0 +1,162 @@
+	%% Ego Vehicle parameters
+nrWheelsFr = 2; % Number of wheels on front axle
+nrWheelsRe = 2; % Number of wheels on rear axle
+mEgo = 1500; % Vehicle mass, m [kg]
+a = 1.4; % Longitudinal distance from center of mass to front axle, a [m]
+b = 1.6; % Longitudinal distance from center of mass to rear axle, b [m]
+h = 0.35; % Vertical distance from center of mass to axle plane, h [m]
+
+Cy_f = 12e3; % Front tire corner stiffness, Cy_f [N/rad]
+Cy_r = 11e3; % Rear tire axle corner stiffness, Cy_r [N/rad]
+sigma_f = 0.1; % Front tire(s) relaxation length, sigma_f [m]
+sigma_r = 0.1; % Rear tire(s) relaxation length, sigma_r [m]
+Izz = 4000; % Yaw polar inertia, Izz [kg*m^2] 
+
+
+	%% ACTOR IDs
+LeadID = 2;
+InterferingID = 3;
+ThresholdID = 1;
+
+
+	%% Lanes bus signal
+% Left
+left(1) = Simulink.BusElement;
+left(1).Name = "Curvature";
+left(2) = Simulink.BusElement;
+left(2).Name = "CurvatureDerivative";
+left(3) = Simulink.BusElement;
+left(3).Name = "HeadingAngle";
+left(4) = Simulink.BusElement;
+left(4).Name = "LateralOffset";
+left(5) = Simulink.BusElement;
+left(5).Name = "Strength";
+Left = Simulink.Bus;
+Left.Elements = left;
+
+% Right
+right(1) = Simulink.BusElement;
+right(1).Name = "Curvature";
+right(2) = Simulink.BusElement;
+right(2).Name = "CurvatureDerivative";
+right(3) = Simulink.BusElement;
+right(3).Name = "HeadingAngle";
+right(4) = Simulink.BusElement;
+right(4).Name = "LateralOffset";
+right(5) = Simulink.BusElement;
+right(5).Name = "Strength";
+Right = Simulink.Bus;
+Right.Elements = right;
+
+% Lanes
+lanes(1) = Simulink.BusElement;
+lanes(1).Name = "Left";
+lanes(2) = Simulink.BusElement();
+lanes(2).Name = "Right";
+Lanes = Simulink.Bus;
+Lanes.Elements = lanes;
+
+InternalBuses = Simulink.Bus;
+InternalBuses.Elements = left(1:4);
+
+	%% PropagationModel
+% pm(1) = Simulink.BusElement;
+% pm(1).Name = "raytracing";
+pm(1) = Simulink.BusElement;
+pm(1).Name = char("Method");
+pm(1).DataType = "char";
+pm(2) = Simulink.BusElement;
+pm(2).Name = char("maxNumReflections");
+pm(3) = Simulink.BusElement;
+pm(3).Name = char("BuildingsMaterial");
+pm(3).DataType = "char";
+pm(4) = Simulink.BusElement;
+pm(4).Name = char("TerrainMaterial");
+pm(4).DataType = "char";
+
+propMod = Simulink.Bus;
+propMod.Elements = pm;
+
+	%% ZEROACTORS
+ZeroActors = struct(...
+    'ActorID',0,...
+    'Position', [1000 1000 1000], ...
+    'Velocity', [0 0 0], ...
+    'Roll', 0, ...
+    'Pitch', 0, ...
+    'Yaw', 0, ...
+    'AngularVelocity', [0 0 0]);
+
+	%% -1 Actor
+MinusOneActor = struct(...
+    'ActorID',-1,...
+    'Position', [-1 -1 -1], ...
+    'Velocity', [-1 -1 -1], ...
+    'Roll', -1, ...
+    'Pitch', -1, ...
+    'Yaw', -1, ...
+    'AngularVelocity', [-1 -1 -1]);
+
+
+	%% EGO WAYPOINTS MATRIX
+waypoints = [-120.7879, 1.2377,     deg2rad(6.6553);
+             -81.4000,  5.2000,     deg2rad(3.7);
+             -57.5000,  6,          deg2rad(0.9838);
+             -35.1000,  5.8000,     deg2rad(-2.0962);
+             -11,       3.7000,     deg2rad(-8.9393);
+             4.3000,    0.6000,     deg2rad(-13.2355);
+             26,        -5.2000,    deg2rad(-16.9129);
+             36.9,      -8.4,       deg2rad(-19.9541);
+             47.6000,   -13.3000,   deg2rad(-25.6143);
+             55.8,      -17.9,      deg2rad(-30.3116);
+             64.8000,   -23.5000,   deg2rad(-35.1661);
+             77.1000,   -32.8000,   deg2rad(-37.9113);
+             96.2000,   -48.9000,   deg2rad(-45.0339);
+             104,       -58.4,      deg2rad(-51.8005);                    
+             114.5000,  -71.6000,   deg2rad(-54.4401);
+             132.9000,  -98.4000,   deg2rad(-57.1020);
+             148.95,    -124.95,    deg2rad(-59.7405);
+             160.2000,  -144.5000,  deg2rad(-60.4985)];
+PredictionHorizon = 10;
+
+
+	%% Environment
+Grade = 0;
+WindXYZ = [0 0 0];
+
+	%% Járművek kezdeti értékei:
+a_lead = 2;
+v0_lead = 20;   
+x0_lead = 50;
+v0_con = 30;
+x0_con = 10;
+t_gap = 1.4;
+v_set = 30;
+
+
+	%% Adaptive Cruise control block parameters
+G_con = tf(1,[0.5,1,0]);        %  Linear model from longitudinal acceleration to longitudinal velocity
+vinit = 20;                     %  Initial condition for longitudinal velocity (m/s)
+D_default = 10;                 %  Default spacing (m)
+vmax = 35;                      %  Maximum velocity (m/s)
+amin = -3;                      %  Minimum longitudinal acceleration (m/s^2)
+amax = 2;                       %  Maximum longitudinal acceleration (m/s^2)
+Prediction_horizon = 30;        %  Prediction horizon (steps)
+Controller_behaivour = 0.5;     %  Controller behavour [More robust 0<----->1 More aggressive]
+vmin = 0;
+
+	%%  Multi-Object Tracker
+assigThresh = 30;         % Threshold for assigning detections to tracks
+numTracks = 200;          % Maximum number of tracks
+numSensors = 20;          % Maximum number of sensors
+
+positionSensor = 1;
+% sim(mdl)
+
+
+	%% V2X
+h_T = 1.5;
+h_R = 1.5;
+dF =  (4*h_T*h_R)/lambda;
+sceneOrigin = [-1.8, 4, 0];
+P_Signal = 0.1; % in Watts
